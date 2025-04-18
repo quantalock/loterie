@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <title>Satoshiho loterie (s kurzem BTC)</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/elliptic/6.5.4/elliptic.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+  <style>
+    body { font-family: sans-serif; max-width: 800px; margin: auto; padding: 2em; text-align: center; }
+    button { font-size: 1em; padding: 0.5em 1.2em; margin: 0.5em; }
+    input, textarea { width: 100%; font-family: monospace; font-size: 0.9em; padding: 0.4em; margin: 0.5em 0; }
+    code { background: #eee; padding: 0.2em; display: inline-block; margin: 0.2em; }
+    .result { margin-top: 2em; padding: 1em; border-top: 1px solid #ccc; }
+  </style>
+</head>
+<body>
+  <h1>Loterie</h1>
+  <p><strong>Možná výhra:</strong> <span id="vyhra">–</span></p>
+
+  <p><strong>Hledaný HASH160 (Genesis adresa):</strong><br>
+    <code>62e907b15cbf27d5425399ebf6f0fb50ebb88f18</code>
+  </p>
+  <p><strong>Obsah adresy:</strong> 50 BTC</p>
+  <p><strong>Aktuální cena BTC:</strong> <span id="cena">Načítám...</span></p>
+  
+  <button onclick="generujNahodnyKlic()">🔑 Vygeneruj náhodný klíč</button>
+  <form onsubmit="zkontroluj(event)">
+    <label for="privKey">Privátní klíč (hex):</label>
+    <input type="text" id="privKey" placeholder="Zde bude klíč nebo zadej vlastní" required>
+    <button type="submit">⚡ Zkontroluj HASH</button>
+  </form>
+
+  <div id="vysledek" class="result"></div>
+
+  <script>
+    let aktualniCenaBTC = null;
+    const ec = new elliptic.ec('secp256k1');
+    const targetHash160 = '62e907b15cbf27d5425399ebf6f0fb50ebb88f18';
+
+    // Získání ceny BTC
+    fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=czk')
+      .then(response => response.json())
+      .then(data => {
+        aktualniCenaBTC = data.bitcoin.czk;
+        document.getElementById("cena").textContent = `${aktualniCenaBTC.toLocaleString('cs-CZ')} Kč`;
+        document.getElementById("vyhra").textContent = `${(50 * aktualniCenaBTC).toLocaleString('cs-CZ')} Kč`;
+      })
+      .catch(() => {
+        document.getElementById("cena").textContent = "Chyba při načítání.";
+      });
+
+    // Generování náhodného privátního klíče
+    function generujNahodnyKlic() {
+      const key = ec.genKeyPair();
+      const privHex = key.getPrivate('hex');
+      document.getElementById('privKey').value = privHex;
+    }
+
+    // Hashovací funkce
+    function sha256(buffer) {
+      return CryptoJS.SHA256(CryptoJS.lib.WordArray.create(buffer)).toString(CryptoJS.enc.Hex);
+    }
+
+    function ripemd160(hex) {
+      return CryptoJS.RIPEMD160(CryptoJS.enc.Hex.parse(hex)).toString(CryptoJS.enc.Hex);
+    }
+
+    function hexToBytes(hex) {
+      const bytes = new Uint8Array(hex.length / 2);
+      for (let i = 0; i < hex.length; i += 2) {
+        bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+      }
+      return bytes;
+    }
+
+    function zkontroluj(event) {
+      event.preventDefault();
+      const privHex = document.getElementById('privKey').value.trim();
+      if (!/^[0-9a-fA-F]{64}$/.test(privHex)) {
+        alert("Privátní klíč musí být 64 hexadecimálních znaků.");
+        return;
+      }
+
+      try {
+        const key = ec.keyFromPrivate(privHex, 'hex');
+        const pubKeyHex = key.getPublic(false, 'hex'); // nekomprimovaný veřejný klíč
+        const hash160 = ripemd160(sha256(hexToBytes(pubKeyHex)));
+
+        let html = `<p><strong>HASH160:</strong><br><code>${hash160}</code></p>`;
+        if (hash160 === targetHash160) {
+          html += `<h2 style="color:green;">🎉 GRATULUJI! Právě jsi našel klíč ke Genesis adrese! 🎉</h2>`;
+          if (aktualniCenaBTC) {
+            html += `<p><strong>Výhra:</strong> ${(50 * aktualniCenaBTC).toLocaleString('cs-CZ')} Kč</p>`;
+          } else {
+            html += `<p><em>Výši výhry nelze spočítat (chyba načtení kurzu).</em></p>`;
+          }
+        } else {
+          html += `<p style="color:red;">❌ Ne, ale můžeš to zkusit znovu.</p>`;
+        }
+        document.getElementById('vysledek').innerHTML = html;
+
+      } catch (e) {
+        alert("Neplatný privátní klíč.");
+      }
+    }
+  </script>
+</body>
+</html>
